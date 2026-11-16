@@ -16,6 +16,8 @@ spec:
     namespace: whoami              # ...but the app's objects go HERE
 
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
-      - CreateNamespace=true       # create the "whoami" namespace if it doesn't exist
-    # no "automated:" section yet = manual sync
+      - CreateNamespace=true
