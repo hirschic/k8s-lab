@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whoami
+spec:
+  rules:
+    - host: whoami.192.168.4.65.nip.io     # e.g. whoami.192.168.1.50.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix          # "/" + Prefix = every path on this host
+            backend:
+              service:
+                name: whoami          # ⑤ must match ③
+                port:
+                  number: 80          # must match the Service's "port"

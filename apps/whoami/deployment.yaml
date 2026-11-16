@@ -1,0 +1,25 @@
+apiVersion: apps/v1          # which API group/version defines this kind
+kind: Deployment
+metadata:
+  name: whoami               # the Deployment's own name
+spec:
+  replicas: 2                # desired state: 2 pods, always
+  selector:
+    matchLabels:
+      app: whoami            # ① "the pods I manage are the ones labeled app=whoami"
+  template:                  # the blueprint for each pod
+    metadata:
+      labels:
+        app: whoami          # ② every pod gets this label (must match ①)
+    spec:
+      containers:
+        - name: whoami
+          image: traefik/whoami:latest   # tiny web server that prints info about the request; has an arm64 build
+          ports:
+            - containerPort: 80          # informational: the app listens on 80
+          resources:
+            requests:                    # "reserve at least this much": the scheduler uses it to place pods
+              cpu: 10m
+              memory: 16Mi
+            limits:                      # "never more than this": enforced by cgroups (Step 1!)
+              memory: 64Mi
