@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: whoami               # the Deployment's own name
 spec:
-  replicas: 2                # desired state: 2 pods, always
+  replicas: 3                # desired state: 2 pods, always
   selector:
     matchLabels:
       app: whoami            # ① "the pods I manage are the ones labeled app=whoami"
