@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1   # the API group added by Argo's CRDs
+kind: Application
+metadata:
+  name: whoami                     # name shown in the Argo UI
+  namespace: argocd                # Application objects live in Argo's namespace...
+spec:
+  project: default                 # Argo "projects" group apps and limit permissions; default allows anything
+
+  source:
+    repoURL: https://github.com/hirschic/k8s-lab.git
+    targetRevision: HEAD           # track the latest commit on the default branch (main)
+    path: apps/whoami              # only this folder; everything in it gets applied
+
+  destination:
+    server: https://kubernetes.default.svc   # "this same cluster" (the API server's address from inside the cluster)
+    namespace: whoami              # ...but the app's objects go HERE
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true       # create the "whoami" namespace if it doesn't exist
+    # no "automated:" section yet = manual sync
