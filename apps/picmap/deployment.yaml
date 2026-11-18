@@ -15,6 +15,8 @@ spec:
       labels:
         app: picmap
     spec:
+      imagePullSecrets:             # credentials the kubelet uses to download images
+        - name: ghcr-pull
       securityContext:
         fsGroup: 1654               # the .NET image runs as user "app" (uid 1654); make /data writable for it
       containers:
