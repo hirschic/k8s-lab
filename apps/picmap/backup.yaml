@@ -1,0 +1,121 @@
+# Daily backup of PicMap's database and photos to a USB drive on the Pi.
+#
+#   /mnt/picmap-backup/            (the USB drive, mounted on the Pi itself, see README)
+#     .picmap-backup-drive         marker file: proves the drive is really mounted
+#     db/picmap-2026-11-19_0330.db.gz   one database snapshot per day, last 30 kept
+#     photos/...                   mirror of /data/photos (new photos copied each night)
+#
+# Test it any time without waiting for 3:30am:
+#   kubectl create job -n picmap --from=cronjob/picmap-backup picmap-backup-manual
+#   kubectl logs -n picmap job/picmap-backup-manual
+---
+apiVersion: v1
+kind: ConfigMap                     # a bag of files/settings; here it holds the backup script
+metadata:
+  name: picmap-backup-script
+data:
+  backup.py: |
+    import datetime, glob, gzip, os, shutil, sqlite3, sys
+
+    DATA, DEST, KEEP = "/data", "/backup", 30
+
+    # If the USB drive isn't mounted, /mnt/picmap-backup is just an empty folder on the SD card.
+    # Refuse to "back up" onto the same card we're protecting.
+    if not os.path.exists(os.path.join(DEST, ".picmap-backup-drive")):
+        sys.exit("Backup drive not mounted (no .picmap-backup-drive marker). Nothing written.")
+
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
+    os.makedirs(f"{DEST}/db", exist_ok=True)
+
+    # 1. Database: SQLite's online backup API copies a consistent snapshot even while the app
+    #    is running (a plain file copy could catch it mid-write).
+    tmp = f"{DEST}/db/.picmap-{stamp}.db.partial"
+    src, dst = sqlite3.connect(f"{DATA}/picmap.db"), sqlite3.connect(tmp)
+    src.backup(dst)
+    check = dst.execute("PRAGMA integrity_check").fetchone()[0]
+    kiosks = dst.execute("SELECT COUNT(*) FROM Locations").fetchone()[0]
+    photos = dst.execute("SELECT COUNT(*) FROM Photos").fetchone()[0]
+    dst.close(); src.close()
+    if check != "ok":
+        os.remove(tmp)
+        sys.exit(f"Snapshot failed integrity check: {check}")
+    final = f"{DEST}/db/picmap-{stamp}.db.gz"
+    with open(tmp, "rb") as fin, gzip.open(final, "wb") as fout:
+        shutil.copyfileobj(fin, fout)
+    os.remove(tmp)
+
+    # 2. Photos never change once saved, so only copy files the backup doesn't have yet.
+    #    (Photos deleted in the app stay in the backup, which is on purpose.)
+    copied = 0
+    for root, _, files in os.walk(f"{DATA}/photos"):
+        out = os.path.join(f"{DEST}/photos", os.path.relpath(root, f"{DATA}/photos"))
+        os.makedirs(out, exist_ok=True)
+        for name in files:
+            s, d = os.path.join(root, name), os.path.join(out, name)
+            if not os.path.exists(d) or os.path.getsize(d) != os.path.getsize(s):
+                shutil.copy2(s, d)
+                copied += 1
+
+    # 3. Keep the newest KEEP database snapshots.
+    snapshots = sorted(glob.glob(f"{DEST}/db/picmap-*.db.gz"))
+    for old in snapshots[:-KEEP]:
+        os.remove(old)
+
+    print(f"OK {final}: {kiosks} kiosks, {photos} photo records, {os.path.getsize(final)} bytes; "
+          f"{copied} new photo files copied; {min(len(snapshots), KEEP)} snapshots kept.")
+---
+apiVersion: batch/v1
+kind: CronJob                       # "create a Job on this schedule"; each Job runs one pod to completion
+metadata:
+  name: picmap-backup
+spec:
+  schedule: "30 3 * * *"            # minute hour day month weekday: every day at 3:30
+  timeZone: America/New_York        # otherwise the schedule is in UTC
+  concurrencyPolicy: Forbid         # never start a backup while the previous one is still running
+  successfulJobsHistoryLimit: 3     # keep the last few finished Jobs around so you can read their logs
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1               # retry once on failure, then give up until tomorrow
+      activeDeadlineSeconds: 1800   # kill it if it somehow runs longer than 30 minutes
+      template:
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            kubernetes.io/hostname: clintpi2   # the Pi the USB drive (and the local-path volume) is on
+          securityContext:
+            runAsUser: 1654         # same user as the PicMap app, so files it touches stay app-owned
+            runAsGroup: 1654
+            fsGroup: 1654
+          containers:
+            - name: backup
+              image: python:3.12-alpine        # small, has arm64, and Python ships with sqlite3 built in
+              command: ["python", "/scripts/backup.py"]
+              env:
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+              volumeMounts:
+                - name: data
+                  mountPath: /data              # PicMap's own volume (shared with the running app)
+                - name: backup
+                  mountPath: /backup            # the USB drive
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 256Mi
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: picmap-data
+            - name: backup
+              hostPath:                         # a folder on the node itself, not managed by Kubernetes
+                path: /mnt/picmap-backup
+                type: Directory                 # must already exist (see README), so a typo fails loudly
+            - name: script
+              configMap:
+                name: picmap-backup-script
