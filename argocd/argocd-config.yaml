@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/hirschic/k8s-lab.git
+    targetRevision: HEAD
+    path: apps/argocd-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd               # Argo's own namespace; it already exists, so no CreateNamespace
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure   # (3) only answer on port 443 (HTTPS)
+spec:
+  tls:
+    - hosts:
+        - argocd.192.168.4.65.nip.io        # (4) HTTPS for this host, no secretName = Traefik's default cert
+  rules:
+    - host: argocd.192.168.4.65.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80                 # (5) the plain-HTTP port, now that server.insecure is on
