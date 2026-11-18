@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm        # (1) a ConfigMap Argo already reads; the install created it empty
+  namespace: argocd
+data:
+  server.insecure: "true"           # (2) argocd-server serves plain HTTP; Traefik does HTTPS
