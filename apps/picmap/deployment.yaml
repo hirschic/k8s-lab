@@ -23,7 +23,7 @@ spec:
         - name: picmap
           # Built by GitHub Actions in the PicMap repo. Pinned to a commit SHA so Argo only rolls out
           # a new version when this line changes (bump it to deploy a newer build).
-          image: ghcr.io/hirschic/picmap:bdb6196b96aa50071aa11ef66084cf2d4cd33827
+          image: ghcr.io/hirschic/picmap:0302a6f8e2694d703f42888f3e9c8d19e4b9787c
           ports:
             - containerPort: 8080
           env:
