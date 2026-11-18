@@ -4,7 +4,8 @@ metadata:
   name: whoami                     # name shown in the Argo UI
   namespace: argocd                # Application objects live in Argo's namespace...
 spec:
-  project: default                 # Argo "projects" group apps and limit permissions; default allows anything
+  project: default     
+  revisionHistoryLimit: 5            # Argo "projects" group apps and limit permissions; default allows anything
 
   source:
     repoURL: https://github.com/hirschic/k8s-lab.git
