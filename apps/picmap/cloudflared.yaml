@@ -1,0 +1,33 @@
+# Public HTTPS access via a Cloudflare "Quick Tunnel": free, no account, no router ports opened.
+# The tunnel dials OUT to Cloudflare, which hands back a random https://<words>.trycloudflare.com
+# address. That address changes whenever this pod restarts. Find the current one with:
+#   kubectl logs -n picmap deploy/cloudflared | grep trycloudflare.com
+# (Later: swap to a named tunnel + your own domain for a permanent address.)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+spec:
+  replicas: 1                       # each replica would get its own random address; keep one
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.11.0   # multi-arch image (has arm64)
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --url
+            - http://picmap.picmap.svc:80          # forward everything to the PicMap Service
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim         # "I need some disk that outlives my pods"
+metadata:
+  name: picmap-data
+spec:
+  accessModes:
+    - ReadWriteOnce                 # one node mounts it read-write (fine: PicMap runs a single pod)
+  storageClassName: local-path      # k3s's built-in provisioner: a folder on the Pi's own disk
+  resources:
+    requests:
+      storage: 5Gi                  # SQLite db + photos (~0.3 MB each after resizing) + login keys
+# Everything PicMap must keep lives here, mounted at /data:
+#   /data/picmap.db   the SQLite database
+#   /data/photos/     uploaded photos (original, display, thumb)
+#   /data/keys/       keys that sign the login cookie (so restarts don't log you out)
+# local-path data sits under /var/lib/rancher/k3s/storage/ on the node. Back it up!

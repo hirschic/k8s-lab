@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: picmap
+spec:
+  replicas: 1                       # SQLite + photos on one disk = exactly one pod, never more
+  strategy:
+    type: Recreate                  # stop the old pod BEFORE starting the new one, so two pods never
+                                    # write the same SQLite file (the default RollingUpdate overlaps them)
+  selector:
+    matchLabels:
+      app: picmap
+  template:
+    metadata:
+      labels:
+        app: picmap
+    spec:
+      securityContext:
+        fsGroup: 1654               # the .NET image runs as user "app" (uid 1654); make /data writable for it
+      containers:
+        - name: picmap
+          # Built by GitHub Actions in the PicMap repo. Pinned to a commit SHA so Argo only rolls out
+          # a new version when this line changes (bump it to deploy a newer build).
+          image: ghcr.io/hirschic/picmap:4058772c4ae490182f9f26e5c8f7bec8fc4a1a02
+          ports:
+            - containerPort: 8080
+          env:
+            # ASP.NET Core reads config from env vars; "__" means a nested setting (Section:Key).
+            - name: ConnectionStrings__Default
+              value: Data Source=/data/picmap.db
+            - name: PhotoStorage__RootPath
+              value: /data/photos
+            - name: DataProtection__KeysPath
+              value: /data/keys
+            # Trust X-Forwarded-For from in-cluster proxies (Traefik, cloudflared) to see real visitor IPs.
+            - name: ForwardedHeaders__KnownNetworks__0
+              value: 10.42.0.0/16          # k3s pod network
+            - name: ForwardedHeaders__KnownNetworks__1
+              value: 10.43.0.0/16          # k3s service network
+            - name: GoogleMaps__ApiKey     # secret: NOT in Git. Created once with kubectl (see README)
+              valueFrom:
+                secretKeyRef:
+                  name: picmap-secrets
+                  key: google-maps-api-key
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:                  # "send me traffic only when this succeeds"
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:                   # "restart me if this keeps failing"
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 30        # give the Pi time to start .NET and open the database
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 768Mi                # decoding a 12-megapixel phone photo needs a few hundred MB briefly
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: picmap-data         # the PVC in pvc.yaml

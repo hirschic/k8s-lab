@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: picmap
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/hirschic/k8s-lab.git
+    targetRevision: HEAD
+    path: apps/picmap
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: picmap
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
