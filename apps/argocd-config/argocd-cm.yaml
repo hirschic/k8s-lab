@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false   # (1) never delete this ConfigMap, even if this file is removed
+data:
+  timeout.reconciliation: 30s            # (2) check Git every 30 seconds (default 180s)
+  timeout.reconciliation.jitter: 10s     # (3) plus up to 10s of randomness
