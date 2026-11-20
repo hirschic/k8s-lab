@@ -1,0 +1,42 @@
+# Named Cloudflare Tunnel: permanent address on your own domain.
+# Hostname routing (picmap.<domain> -> http://picmap.picmap.svc:80) is set in the Cloudflare dashboard.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-named
+spec:
+  replicas: 2                           # (1) two connectors: one can restart while the other serves
+  selector:
+    matchLabels:
+      app: cloudflared-named            # (2) must NOT be "app: cloudflared" (the Quick Tunnel's label)
+  template:
+    metadata:
+      labels:
+        app: cloudflared-named
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.11.0
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --metrics
+            - 0.0.0.0:2000              # (3) small built-in status server, used by the probe below
+            - run                       # (4) "run the tunnel identified by the token"
+          env:
+            - name: TUNNEL_TOKEN        # (5) cloudflared reads its token from this variable
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-token
+                  key: token
+          readinessProbe:
+            httpGet:
+              path: /ready              # (6) returns 200 only once connected to Cloudflare
+              port: 2000
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
