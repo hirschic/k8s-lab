@@ -27,7 +27,7 @@ spec:
         - name: recipe-depot
           # Built by GitHub Actions in the recipe-depot repo. Pinned to a commit SHA so Argo only rolls
           # out a new version when this line changes (the workflow's deploy job will bump it).
-          image: ghcr.io/hirschic/recipe-depot:87486f18f47e986cdfebbcf6a78c83f1d952672d
+          image: ghcr.io/hirschic/recipe-depot:6b612ec19eafa1cd3738c294453b1e299e81a674
           ports:
             - containerPort: 8000
           env:
