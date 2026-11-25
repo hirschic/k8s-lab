@@ -14,6 +14,10 @@ spec:
       labels:
         app: recipe-depot
     spec:
+      # Kubernetes normally adds env vars for every Service in the namespace, named after it: for the
+      # Service "recipe-depot" that's RECIPE_DEPOT_PORT=tcp://10.43.x.x:80, which collides with the
+      # app's own RECIPE_DEPOT_* settings. Nothing uses them (cluster DNS does that job), so turn them off.
+      enableServiceLinks: false
       imagePullSecrets:
         - name: ghcr-pull           # a copy of PicMap's (Secrets belong to one namespace); made by hand
       securityContext:
