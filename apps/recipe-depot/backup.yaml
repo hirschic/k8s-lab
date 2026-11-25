@@ -1,0 +1,135 @@
+# Nightly backup of Recipe Depot's database and original photos to the USB drive on the Pi
+# (the same drive as PicMap's backups, in a folder of its own; see README.md for the one-time setup).
+#
+#   /mnt/picmap-backup/                  the USB drive, mounted on the Pi itself
+#     .picmap-backup-drive               marker file: proves the drive is really mounted
+#     recipe-depot/
+#       db/recipes-2026-11-26_0845Z.sqlite3.gz   one snapshot per night, last 30 kept (time in UTC: "Z")
+#       photos/...                       mirror of /data/photos (new photos copied each night)
+#
+# Test it any time without waiting for the schedule:
+#   kubectl create job -n recipe-depot --from=cronjob/recipe-depot-backup recipe-depot-backup-manual
+#   kubectl logs -n recipe-depot job/recipe-depot-backup-manual
+---
+apiVersion: v1
+kind: ConfigMap                     # holds the backup script, mounted into the job's pod as a file
+metadata:
+  name: recipe-depot-backup-script
+data:
+  backup.py: |
+    import datetime, glob, gzip, os, shutil, sqlite3, sys
+
+    DATA, DRIVE, KEEP = "/data", "/drive", 30
+    DEST = f"{DRIVE}/recipe-depot"
+
+    # If the USB drive isn't mounted, /mnt/picmap-backup is just an empty folder on the SD card.
+    # Refuse to "back up" onto the same card we're protecting.
+    if not os.path.exists(f"{DRIVE}/.picmap-backup-drive"):
+        sys.exit("Backup drive not mounted (no .picmap-backup-drive marker). Nothing written.")
+    if not os.path.isdir(DEST):
+        sys.exit(f"{DEST} is missing: create it once on the Pi (see apps/recipe-depot/README.md).")
+    if not os.path.exists(f"{DATA}/recipes.sqlite3"):
+        sys.exit("No database yet (/data/recipes.sqlite3). Nothing to back up.")
+
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H%MZ")
+    os.makedirs(f"{DEST}/db", exist_ok=True)
+
+    # 1. Database: SQLite's online backup API copies a consistent snapshot even while the app is
+    #    running and writing (a plain file copy could catch it mid-write, or miss what's in the -wal file).
+    tmp = f"{DEST}/db/.recipes-{stamp}.sqlite3.partial"
+    src, dst = sqlite3.connect(f"{DATA}/recipes.sqlite3"), sqlite3.connect(tmp)
+    src.backup(dst)
+    check = dst.execute("PRAGMA integrity_check").fetchone()[0]
+    recipes = dst.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+    with_photo = dst.execute("SELECT COUNT(*) FROM recipes WHERE photo IS NOT NULL").fetchone()[0]
+    dst.close(); src.close()
+    if check != "ok":
+        os.remove(tmp)
+        sys.exit(f"Snapshot failed integrity check: {check}")
+    final = f"{DEST}/db/recipes-{stamp}.sqlite3.gz"
+    with open(tmp, "rb") as fin, gzip.open(final, "wb") as fout:
+        shutil.copyfileobj(fin, fout)
+    os.remove(tmp)
+
+    # 2. Photos: a saved photo never changes (a replaced photo gets a new random name), so only copy
+    #    files the backup doesn't have yet. Skip ".partial" files the app is still writing.
+    #    (Photos removed in the app stay in the backup, on purpose.)
+    os.makedirs(f"{DEST}/photos", exist_ok=True)
+    copied = 0
+    if os.path.isdir(f"{DATA}/photos"):
+        for name in os.listdir(f"{DATA}/photos"):
+            s, d = f"{DATA}/photos/{name}", f"{DEST}/photos/{name}"
+            if name.startswith(".") or not os.path.isfile(s):
+                continue
+            if not os.path.exists(d) or os.path.getsize(d) != os.path.getsize(s):
+                shutil.copy2(s, d)
+                copied += 1
+
+    # 3. Keep the newest KEEP database snapshots (names sort by date).
+    snapshots = sorted(glob.glob(f"{DEST}/db/recipes-*.sqlite3.gz"))
+    for old in snapshots[:-KEEP]:
+        os.remove(old)
+
+    print(f"OK {final}: {recipes} recipes ({with_photo} with a photo), {os.path.getsize(final)} bytes; "
+          f"{copied} new photo files copied; {min(len(snapshots), KEEP)} snapshots kept.")
+---
+apiVersion: batch/v1
+kind: CronJob                       # "create a Job on this schedule"; each Job runs one pod to completion
+metadata:
+  name: recipe-depot-backup
+spec:
+  schedule: "45 3 * * *"            # every day at 3:45, after PicMap's 3:30 backup
+  timeZone: America/New_York        # otherwise the schedule is in UTC
+  concurrencyPolicy: Forbid         # never start a backup while the previous one is still running
+  successfulJobsHistoryLimit: 3     # keep the last few finished Jobs so you can read their logs
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1               # retry once on failure, then give up until tomorrow
+      activeDeadlineSeconds: 1800   # kill it if it somehow runs longer than 30 minutes
+      template:
+        spec:
+          restartPolicy: Never
+          enableServiceLinks: false # same RECIPE_DEPOT_* collision as the app (harmless here, but tidy)
+          nodeSelector:
+            kubernetes.io/hostname: clintpi2   # the Pi the USB drive (and the local-path volume) is on
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001        # same user as the app, so it can read the data and owns what it writes
+            runAsGroup: 10001
+            fsGroup: 10001
+          containers:
+            - name: backup
+              image: python:3.13-alpine        # small, has arm64, and Python ships with sqlite3 built in
+              command: ["python", "/scripts/backup.py"]
+              env:
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: data
+                  mountPath: /data              # the app's own volume (shared with the running app)
+                - name: drive
+                  mountPath: /drive             # the whole USB drive (to see the marker); writes go to recipe-depot/
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 256Mi
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: recipe-depot-data
+            - name: drive
+              hostPath:                         # a folder on the node itself, not managed by Kubernetes
+                path: /mnt/picmap-backup
+                type: Directory                 # must already exist, so a typo fails loudly
+            - name: script
+              configMap:
+                name: recipe-depot-backup-script
