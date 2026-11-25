@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: recipe-depot
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/hirschic/k8s-lab.git
+    targetRevision: HEAD
+    path: apps/recipe-depot
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: recipe-depot
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

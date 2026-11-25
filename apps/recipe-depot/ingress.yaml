@@ -1,0 +1,19 @@
+# Home network only. (The internet comes in through the Cloudflare Tunnel, which goes straight to the
+# Service, not through Traefik.) Requests here carry no Cloudflare headers, so the app lets them in
+# without a sign-in: never expose this to the internet another way (no port forward on the router).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: recipe-depot
+spec:
+  rules:
+    - host: recipes.192.168.4.65.nip.io     # nip.io resolves to the IP inside the name
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: recipe-depot
+                port:
+                  number: 80

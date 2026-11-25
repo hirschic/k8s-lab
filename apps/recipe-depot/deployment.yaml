@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recipe-depot
+spec:
+  replicas: 1                       # SQLite + photos on one disk = exactly one pod, never more
+  strategy:
+    type: Recreate                  # stop the old pod BEFORE starting the new one (no two pods on one SQLite file)
+  selector:
+    matchLabels:
+      app: recipe-depot
+  template:
+    metadata:
+      labels:
+        app: recipe-depot
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull           # a copy of PicMap's (Secrets belong to one namespace); made by hand
+      securityContext:
+        runAsNonRoot: true          # refuse to start if the image ever tried to run as root
+        fsGroup: 10001              # the Dockerfile's user; makes the /data volume writable for it
+      containers:
+        - name: recipe-depot
+          # Built by GitHub Actions in the recipe-depot repo. Pinned to a commit SHA so Argo only rolls
+          # out a new version when this line changes (the workflow's deploy job will bump it).
+          image: ghcr.io/hirschic/recipe-depot:4a303a89f696d8d2f96be6bde12d52dd53a32483
+          ports:
+            - containerPort: 8000
+          env:
+            # Host, port and data folder come from the Dockerfile (0.0.0.0, 8000, /data).
+            - name: RECIPE_DEPOT_API_KEY          # secret: NOT in Git. Created once with kubectl
+              valueFrom:
+                secretKeyRef:
+                  name: recipe-depot-secrets
+                  key: api-key
+            - name: RECIPE_DEPOT_OPENAI_API_KEY   # photo reading; without it the feature is just off
+              valueFrom:
+                secretKeyRef:
+                  name: recipe-depot-secrets
+                  key: openai-api-key
+                  optional: true                  # so the pod still starts if the Secret has no such key
+            # Cloudflare Access (step 6): RECIPE_DEPOT_ACCESS_TEAM_DOMAIN and RECIPE_DEPOT_ACCESS_AUDIENCE
+            # go here. Until then, requests through Cloudflare are refused (the home network works).
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true          # the app only writes to /data (and /tmp, below)
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp                     # uploads FastAPI spools to disk while reading a form
+          readinessProbe:                         # "send me traffic only when this succeeds"
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:                          # "restart me if this keeps failing"
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              memory: 384Mi                       # a photo upload is held in memory while it's sent to OpenAI
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: recipe-depot-data
+        - name: tmp
+          emptyDir: {}                            # scratch space that lives as long as the pod

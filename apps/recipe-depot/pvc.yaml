@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim         # "I need some disk that outlives my pods"
+metadata:
+  name: recipe-depot-data
+spec:
+  accessModes:
+    - ReadWriteOnce                 # one node mounts it read-write (fine: one pod)
+  storageClassName: local-path      # k3s's built-in provisioner: a folder on the Pi's own disk
+  resources:
+    requests:
+      storage: 5Gi                  # the database is small; the original photos are most of it
+# Everything Recipe Depot keeps lives here, mounted at /data:
+#   /data/recipes.sqlite3   the database
+#   /data/photos/           original recipe photos, exactly as uploaded
+# local-path data sits under /var/lib/rancher/k3s/storage/ on the node. Back it up! (backup: a later step)

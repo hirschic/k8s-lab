@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: recipe-depot                # in-cluster address: http://recipe-depot.recipe-depot.svc (Ingress + cloudflared)
+spec:
+  selector:
+    app: recipe-depot
+  ports:
+    - port: 80
+      targetPort: 8000              # the app listens on 8000 inside the container
