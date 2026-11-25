@@ -43,8 +43,12 @@ spec:
                   name: recipe-depot-secrets
                   key: openai-api-key
                   optional: true                  # so the pod still starts if the Secret has no such key
-            # Cloudflare Access (step 6): RECIPE_DEPOT_ACCESS_TEAM_DOMAIN and RECIPE_DEPOT_ACCESS_AUDIENCE
-            # go here. Until then, requests through Cloudflare are refused (the home network works).
+            # Cloudflare Access: the app checks the sign-in token on every request that came through the
+            # tunnel. Not secrets: they only say which team and which Access application to trust.
+            - name: RECIPE_DEPOT_ACCESS_TEAM_DOMAIN
+              value: plain-snow-caa8.cloudflareaccess.com
+            - name: RECIPE_DEPOT_ACCESS_AUDIENCE          # the Access application's AUD tag
+              value: e2cb6fa88c041914eb8285543b660d8de4525e1ee20e6967573410d122e53ba2
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true          # the app only writes to /data (and /tmp, below)
